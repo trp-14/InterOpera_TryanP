@@ -78,6 +78,7 @@ def to_report_dict(result: FigureResult) -> dict:
         "limit": format_limit_string(result),
         "utilization": result.utilization_str,
         "graph_path": result.graph_path,
+        "rule": result.rule_summary,
         "citation": (
             {
                 "source_doc": result.citation.source_doc,

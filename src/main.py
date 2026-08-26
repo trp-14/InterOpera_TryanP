@@ -19,7 +19,7 @@ from src.config.loader import ConfigError, config_content_hash, load_config
 from src.graph import builder, schema
 from src.narrative.firewall import check_narrative
 from src.narrative.generator import generate_narrative
-from src.reconcile import compare, report
+from src.reconcile import compare, report, viewer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GUIDELINES_PDF = PROJECT_ROOT / "sample_docs" / "sample_fund_guidelines.pdf"
@@ -163,7 +163,10 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         figures_path = output_dir / "figures.json"
         figures_path.write_text(
-            json.dumps({"figures": reports, "narrative": narrative or ""}, indent=2, sort_keys=True, ensure_ascii=False),
+            json.dumps(
+                {"run_id": run_id, "firm": args.firm, "figures": reports, "narrative": narrative or ""},
+                indent=2, sort_keys=True, ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
 
@@ -293,6 +296,37 @@ def cmd_verify_determinism(args: argparse.Namespace) -> None:
         raise SystemExit("FAIL: figures differ across runs - determinism broken")
 
 
+def cmd_viewer(args: argparse.Namespace) -> None:
+    """Bonus (BUILD_PLAN.md Step 13): write a self-contained viewer.html
+    from an already-completed run's artifacts. Reads figures.json and the
+    answer key only — never recomputes a figure."""
+    artifacts_dir = PROJECT_ROOT / "artifacts"
+
+    if args.run_id:
+        run_dir = artifacts_dir / args.run_id
+        if not (run_dir / "figures.json").exists():
+            raise SystemExit(f"no figures.json at artifacts/{args.run_id}/ - run `run --firm A|B` first")
+    else:
+        candidates = sorted(
+            (d for d in artifacts_dir.iterdir() if d.is_dir() and (d / "figures.json").exists()),
+            key=lambda d: (d / "figures.json").stat().st_mtime,
+        )
+        if not candidates:
+            raise SystemExit("no run artifacts found under artifacts/ - run `run --firm A|B` first")
+        run_dir = candidates[-1]
+
+    payload = json.loads((run_dir / "figures.json").read_text(encoding="utf-8"))
+    firm = payload.get("firm", "A")
+
+    answer_key = compare.read_answer_key(PROJECT_ROOT / "sample_docs" / "firm_A_answer_key.xlsx")
+    reference = answer_key if firm == "A" else compare.firm_b_reference(answer_key)
+
+    html_content = viewer.build_viewer_html(payload, reference, run_id=run_dir.name, firm_label=f"Firm {firm}")
+    viewer_path = run_dir / "viewer.html"
+    viewer_path.write_text(html_content, encoding="utf-8")
+    print(f"Wrote {viewer_path.relative_to(PROJECT_ROOT)}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m src.main",
@@ -324,6 +358,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_verify = subparsers.add_parser("verify-determinism", help="run twice, compare hashes")
     p_verify.add_argument("--firm", required=True, choices=["A", "B"])
     p_verify.set_defaults(func=cmd_verify_determinism)
+
+    p_viewer = subparsers.add_parser("viewer", help="write a self-contained viewer.html from a run's artifacts (bonus)")
+    p_viewer.add_argument("--run-id", help="which run to view (default: most recently written)")
+    p_viewer.set_defaults(func=cmd_viewer)
 
     return parser
 

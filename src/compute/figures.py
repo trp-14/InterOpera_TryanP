@@ -45,6 +45,7 @@ class FigureResult:
     utilization: Decimal | None  # raw ratio on a 0-100 percent scale, or None
     graph_path: str
     citation: Citation | None
+    rule_summary: str = ""  # which config rule (if any) determined this figure's inclusion set
     error: str | None = None
     value_str: str | None = None
     utilization_str: str | None = None
@@ -64,6 +65,16 @@ def _is_below_investment_grade(credit_rating: object) -> bool:
     if not credit_rating:
         return False
     return credit_rating not in _INVESTMENT_GRADE_RATINGS
+
+
+def _describe_match(match: FieldMatch) -> str:
+    if match.equals is not None:
+        return f"{match.field} == {match.equals!r}"
+    if match.in_values is not None:
+        return f"{match.field} in {match.in_values!r}"
+    if match.below_investment_grade is not None:
+        return f"{match.field} below_investment_grade == {match.below_investment_grade}"
+    return f"{match.field} (no predicate)"
 
 
 def _match_predicate(match: FieldMatch, record: dict) -> bool:
@@ -171,6 +182,7 @@ def _compute_allocation_figure(
         limit_min=limit_data["min_value"], limit_max=limit_data["max_value"],
         limit_display_mode=limit_display_mode, utilization=utilization,
         graph_path=limit_path.as_path_string(graph), citation=citation,
+        rule_summary="Direct graph traversal (AssetClass -> HAS_LIMIT -> Limit) — no config rule, same for every firm.",
     )
 
 
@@ -256,11 +268,16 @@ def _compute_aggregate_figure(graph: nx.MultiDiGraph, config: FirmConfig, figure
 
     citation = _citation_from_chunk(graph, limit_data["chunk_id"], f"guidelines: {limit_data['name']}")
 
+    rule_summary = "config.figures[%r].include: %s" % (
+        figure_name, "; ".join(_describe_match(rule.match) for rule in figure_config.include),
+    )
+
     return FigureResult(
         figure=figure_name, status=status, unit="percent", value=value,
         limit_min=limit_data["min_value"], limit_max=limit_data["max_value"],
         limit_display_mode=limit_display_mode, utilization=utilization,
         graph_path=_build_membership_path(graph, aggregate_id, records), citation=citation,
+        rule_summary=rule_summary,
     )
 
 
@@ -317,12 +334,16 @@ def _compute_concentration_figure(graph: nx.MultiDiGraph, config: FirmConfig, fi
     utilization = _utilization(value, limit_data["min_value"], limit_data["max_value"], "max")
     citation = _citation_from_chunk(graph, limit_data["chunk_id"], f"guidelines: {limit_data['name']}")
 
+    rule_summary = "config.figures[%r]: filter(%s), group_by=%r" % (
+        figure_name, _describe_match(figure_config.filter), figure_config.group_by,
+    )
+
     return FigureResult(
         figure=figure_name, status=status, unit="percent", value=value,
         limit_min=limit_data["min_value"], limit_max=limit_data["max_value"],
         limit_display_mode="max_only", utilization=utilization,
         graph_path=_build_concentration_path(graph, winning_records, figure_config.group_by, limit_id),
-        citation=citation,
+        citation=citation, rule_summary=rule_summary,
     )
 
 
@@ -350,6 +371,7 @@ def compute_portfolio_duration(graph: nx.MultiDiGraph) -> FigureResult:
         limit_min=threshold_data["min_value"], limit_max=threshold_data["max_value"],
         limit_display_mode="range", utilization=None,
         graph_path=threshold_path.as_path_string(graph), citation=citation,
+        rule_summary="Direct graph traversal (RiskMetric -> HAS_THRESHOLD -> Threshold) — no config rule, same for every firm.",
     )
 
 
@@ -374,6 +396,8 @@ def compute_portfolio_dv01(graph: nx.MultiDiGraph) -> FigureResult:
         limit_min=threshold_data["min_value"], limit_max=threshold_data["max_value"],
         limit_display_mode="max_only", utilization=utilization,
         graph_path=threshold_path.as_path_string(graph), citation=citation,
+        rule_summary="Direct graph traversal (RiskMetric -> HAS_THRESHOLD -> Threshold) — no config rule, same for every firm. "
+                     "Value = NAV x unrounded weighted-average duration x 0.0001.",
     )
 
 
