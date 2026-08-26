@@ -16,6 +16,8 @@ from src.compute.figures import compute_all_figures
 from src.compute.formatters import render_all
 from src.config.loader import ConfigError, config_content_hash, load_config
 from src.graph import builder, schema
+from src.narrative.firewall import check_narrative
+from src.narrative.generator import generate_narrative
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GUIDELINES_PDF = PROJECT_ROOT / "sample_docs" / "sample_fund_guidelines.pdf"
@@ -138,8 +140,30 @@ def cmd_run(args: argparse.Namespace) -> None:
         report_path = output_dir / f"report_firm_{args.firm}.xlsx"
         excel_report.write_report(REPORT_TEMPLATE, reports, report_path)
 
+        # Narrative receives ONLY the already-computed, already-formatted
+        # figures - never the CSV/PDF (CLAUDE.md section 9). Returns None
+        # with no API key, which is exactly what keeps figures complete and
+        # identical either way (section 3.2's acceptance test).
+        narrative = generate_narrative(reports)
+        if narrative is not None:
+            audit_log.append_event(
+                conn, run_id=run_id, event_type="narrative_generated", actor="llm",
+                payload={"length": len(narrative)},
+            )
+            firewall_result = check_narrative(narrative, reports)
+            audit_log.append_event(
+                conn, run_id=run_id, event_type="firewall_checked", actor="system",
+                payload={"passed": firewall_result.passed, "rejected_tokens": firewall_result.rejected_tokens},
+            )
+            if not firewall_result.passed:
+                print(f"WARNING: narrative rejected by firewall (unexplained numbers: {firewall_result.rejected_tokens}) - omitted")
+                narrative = None
+
         figures_path = output_dir / "figures.json"
-        figures_path.write_text(json.dumps(reports, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+        figures_path.write_text(
+            json.dumps({"figures": reports, "narrative": narrative or ""}, indent=2, sort_keys=True, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
         audit_log.append_event(
             conn, run_id=run_id, event_type="report_exported", actor="system",
@@ -148,14 +172,12 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         print(f"Wrote {report_path.relative_to(PROJECT_ROOT)}")
         print(f"Wrote {figures_path.relative_to(PROJECT_ROOT)}")
+        if narrative is None:
+            print("Narrative: empty (no ANTHROPIC_API_KEY, or rejected by firewall)")
 
         error_count = sum(1 for r in results if r.status == "ERROR")
         if error_count:
             print(f"WARNING: {error_count} figure(s) could not be computed (status=ERROR) - see {figures_path.name}")
-
-        # Narrative (Step 8) not implemented yet - the acceptance test in
-        # CLAUDE.md section 3.2 (figures complete with ANTHROPIC_API_KEY
-        # unset) already holds trivially: nothing here calls an LLM.
     finally:
         conn.close()
 
