@@ -1,0 +1,47 @@
+# Firm B method (CLAUDE.md section 7/8). Exactly three knobs differ from
+# firm_a.yaml: presentation.utilization (bps instead of percent),
+# aggregate_non_ig's second include rule (credit-rating based, not just
+# asset_class), and gre_concentration's group_by (parent_issuer instead of
+# issuer_name). Nothing else changed, and no engine code changed either.
+label: "Firm B"
+
+presentation:
+  utilization:
+    format: basis_points
+    decimals: 0
+    rounding: ROUND_DOWN
+  percentage:
+    decimals: 1
+    rounding: ROUND_HALF_UP
+  duration:
+    decimals: 2
+    rounding: ROUND_HALF_UP
+  currency:
+    decimals: 0
+    rounding: ROUND_HALF_UP
+
+figures:
+  aggregate_non_ig:
+    kind: aggregate
+    include:
+      - match: {field: asset_class, in: ["High Yield Bonds", "Structured Credit"]}
+      - match: {field: credit_rating, below_investment_grade: true}
+    limit_ref: aggregate_non_ig
+
+  liquidity_ratio:
+    kind: aggregate
+    include:
+      - match: {field: asset_class, in: ["Singapore Government Securities", "MAS Bills", "Cash & Cash Equivalents"]}
+    limit_ref: liquidity_ratio
+
+  single_issuer_concentration:
+    kind: concentration
+    filter: {field: issuer_type, equals: corporate}
+    group_by: issuer_name
+    limit_ref: single_issuer_concentration
+
+  gre_concentration:
+    kind: concentration
+    filter: {field: issuer_type, equals: GRE}
+    group_by: parent_issuer
+    limit_ref: gre_concentration

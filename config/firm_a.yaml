@@ -1,0 +1,43 @@
+# Firm A method (CLAUDE.md section 7/8). `label` is display-only — the
+# engine never branches on it; only the values below drive behaviour.
+label: "Firm A"
+
+presentation:
+  utilization:
+    format: percent
+    decimals: 1
+    rounding: ROUND_HALF_UP
+  percentage:
+    decimals: 1
+    rounding: ROUND_HALF_UP
+  duration:
+    decimals: 2
+    rounding: ROUND_HALF_UP
+  currency:
+    decimals: 0
+    rounding: ROUND_HALF_UP
+
+figures:
+  aggregate_non_ig:
+    kind: aggregate
+    include:
+      - match: {field: asset_class, in: ["High Yield Bonds", "Structured Credit"]}
+    limit_ref: aggregate_non_ig
+
+  liquidity_ratio:
+    kind: aggregate
+    include:
+      - match: {field: asset_class, in: ["Singapore Government Securities", "MAS Bills", "Cash & Cash Equivalents"]}
+    limit_ref: liquidity_ratio
+
+  single_issuer_concentration:
+    kind: concentration
+    filter: {field: issuer_type, equals: corporate}
+    group_by: issuer_name
+    limit_ref: single_issuer_concentration
+
+  gre_concentration:
+    kind: concentration
+    filter: {field: issuer_type, equals: GRE}
+    group_by: issuer_name
+    limit_ref: gre_concentration
