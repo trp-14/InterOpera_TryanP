@@ -11,18 +11,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # CLAUDE.md section 7 ground truth for Firm A.
 EXPECTED_FIRM_A = {
-    "sgs_allocation": ("35.0%", "OK", "20-60%", "58.3%"),
-    "mas_bills_allocation": ("8.0%", "OK", "0-40%", "20.0%"),
-    "ig_corporate_allocation": ("33.0%", "OK", "10-50%", "66.0%"),
-    "high_yield_allocation": ("9.0%", "OK", "0-15%", "60.0%"),
-    "fx_bonds_allocation": ("5.0%", "OK", "0-20%", "25.0%"),
-    "structured_credit_allocation": ("6.0%", "OK", "0-10%", "60.0%"),
+    "sgs_allocation": ("35.0%", "OK", "20–60%", "58.3%"),
+    "mas_bills_allocation": ("8.0%", "OK", "0–40%", "20.0%"),
+    "ig_corporate_allocation": ("33.0%", "OK", "10–50%", "66.0%"),
+    "high_yield_allocation": ("9.0%", "OK", "0–15%", "60.0%"),
+    "fx_bonds_allocation": ("5.0%", "OK", "0–20%", "25.0%"),
+    "structured_credit_allocation": ("6.0%", "OK", "0–10%", "60.0%"),
     "cash_allocation": ("4.0%", "BREACH", "min 5%", "n/a"),
     "aggregate_non_ig": ("15.0%", "OK", "max 20%", "75.0%"),
     "single_issuer_concentration": ("8.0%", "AT LIMIT", "max 8%", "100.0%"),
     "gre_concentration": ("7.0%", "OK", "max 12%", "58.3%"),
     "liquidity_ratio": ("47.0%", "OK", "min 25%", "188.0%"),
-    "portfolio_duration": ("3.88 yrs", "OK", "2.0-6.5 yrs", "n/a"),
+    "portfolio_duration": ("3.88 yrs", "OK", "2.0–6.5 yrs", "n/a"),
     "portfolio_dv01": ("SGD 38,790 / bp", "OK", "max 85,000", "45.6%"),
 }
 
