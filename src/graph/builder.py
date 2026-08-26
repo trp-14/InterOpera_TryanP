@@ -309,6 +309,60 @@ def freeze_graph(graph: nx.MultiDiGraph, output_path: str | Path) -> str:
     return content_hash
 
 
+# Only these attribute keys ever hold a Decimal (set in build_graph above);
+# everything else round-trips through JSON as plain str/int/float/None/bool
+# without needing type recovery.
+_DECIMAL_FIELDS = frozenset({"min_value", "max_value", "market_value_sgd", "modified_duration"})
+
+
+def load_frozen_graph(path: str | Path) -> nx.MultiDiGraph:
+    """Read back a graph written by `freeze_graph` (BUILD_PLAN.md Step 5-9:
+    `run`/`evaluate`/`trace` read the frozen graph, never re-ingest).
+
+    Verifies the stored content_hash still matches the file's own
+    nodes/edges before trusting it — if artifacts/graph.json was hand-edited
+    or corrupted since it was frozen, this raises rather than silently
+    computing figures from tampered data.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+
+    def _restore_decimals(items: list[dict]) -> list[dict]:
+        restored = []
+        for item in items:
+            fixed = dict(item)
+            for field in _DECIMAL_FIELDS:
+                if field in fixed and fixed[field] is not None:
+                    fixed[field] = Decimal(fixed[field])
+            restored.append(fixed)
+        return restored
+
+    def _without_ingested_at(items: list[dict]) -> list[dict]:
+        return [{k: v for k, v in item.items() if k != "ingested_at"} for item in items]
+
+    hashable_payload = {
+        "nodes": _without_ingested_at(data["nodes"]),
+        "edges": _without_ingested_at(data["edges"]),
+    }
+    hashable_json = json.dumps(hashable_payload, sort_keys=True, separators=(",", ":"))
+    recomputed_hash = hashlib.sha256(hashable_json.encode("utf-8")).hexdigest()
+    if recomputed_hash != data["content_hash"]:
+        raise ValueError(
+            f"{path}: content_hash mismatch (stored={data['content_hash'][:16]}..., "
+            f"recomputed={recomputed_hash[:16]}...) — the frozen graph may have been tampered with"
+        )
+
+    graph = nx.MultiDiGraph()
+    for node in _restore_decimals(data["nodes"]):
+        node_id = node["id"]
+        graph.add_node(node_id, **{k: v for k, v in node.items() if k != "id"})
+
+    for edge in _restore_decimals(data["edges"]):
+        attrs = {k: v for k, v in edge.items() if k not in ("source", "target", "key")}
+        graph.add_edge(edge["source"], edge["target"], key=edge["key"], **attrs)
+
+    return graph
+
+
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[2]
     pdf_path = root / "sample_docs" / "sample_fund_guidelines.pdf"

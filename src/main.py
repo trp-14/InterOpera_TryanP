@@ -11,14 +11,23 @@ import uuid
 from pathlib import Path
 
 from src.audit import log as audit_log
+from src.compute import excel_report
+from src.compute.figures import compute_all_figures
+from src.compute.formatters import render_all
+from src.config.loader import ConfigError, config_content_hash, load_config
 from src.graph import builder, schema
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GUIDELINES_PDF = PROJECT_ROOT / "sample_docs" / "sample_fund_guidelines.pdf"
 HOLDINGS_CSV = PROJECT_ROOT / "sample_docs" / "sample_holdings.csv"
+REPORT_TEMPLATE = PROJECT_ROOT / "sample_docs" / "report_template.xlsx"
 GRAPH_PATH = PROJECT_ROOT / "artifacts" / "graph.json"
 GRAPH_REVIEW_PATH = PROJECT_ROOT / "artifacts" / "graph_review.json"
 AUDIT_DB_PATH = PROJECT_ROOT / "audit.db"
+
+# The only place a firm name selects a file — the engine (src/compute,
+# src/graph, src/ingestion) never sees "A"/"B" (CLAUDE.md section 3.1).
+_CONFIG_FILENAME = {"A": "firm_a.yaml", "B": "firm_b.yaml"}
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -89,7 +98,66 @@ def cmd_approve_graph(args: argparse.Namespace) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    raise NotImplementedError("run: implemented in BUILD_PLAN.md Step 5-8")
+    if not GRAPH_PATH.exists():
+        raise SystemExit(f"no frozen graph at {GRAPH_PATH.relative_to(PROJECT_ROOT)} - run `ingest` first")
+
+    config_path = PROJECT_ROOT / "config" / _CONFIG_FILENAME[args.firm]
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    run_id = f"run_{uuid.uuid4().hex[:8]}"
+    print(f"Run ID: {run_id}")
+
+    # Reads the frozen graph only — never re-ingests, never calls an LLM
+    # (CLAUDE.md section 9: this is what keeps `run` deterministic).
+    graph = builder.load_frozen_graph(GRAPH_PATH)
+
+    conn = audit_log.connect(AUDIT_DB_PATH)
+    try:
+        audit_log.append_event(
+            conn, run_id=run_id, event_type="config_loaded", actor="system",
+            payload={
+                "path": _CONFIG_FILENAME[args.firm],
+                "content_hash": config_content_hash(config_path),
+                "label": config.label,
+            },
+        )
+
+        results = compute_all_figures(graph, config)
+        for result in results:
+            audit_log.append_event(
+                conn, run_id=run_id, event_type="figure_computed", actor="system",
+                payload={"figure": result.figure, "status": result.status},
+            )
+
+        reports = render_all(results, config)
+
+        output_dir = PROJECT_ROOT / "artifacts" / run_id
+        report_path = output_dir / f"report_firm_{args.firm}.xlsx"
+        excel_report.write_report(REPORT_TEMPLATE, reports, report_path)
+
+        figures_path = output_dir / "figures.json"
+        figures_path.write_text(json.dumps(reports, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+
+        audit_log.append_event(
+            conn, run_id=run_id, event_type="report_exported", actor="system",
+            payload={"report_path": str(report_path.relative_to(PROJECT_ROOT)), "figures_path": str(figures_path.relative_to(PROJECT_ROOT))},
+        )
+
+        print(f"Wrote {report_path.relative_to(PROJECT_ROOT)}")
+        print(f"Wrote {figures_path.relative_to(PROJECT_ROOT)}")
+
+        error_count = sum(1 for r in results if r.status == "ERROR")
+        if error_count:
+            print(f"WARNING: {error_count} figure(s) could not be computed (status=ERROR) - see {figures_path.name}")
+
+        # Narrative (Step 8) not implemented yet - the acceptance test in
+        # CLAUDE.md section 3.2 (figures complete with ANTHROPIC_API_KEY
+        # unset) already holds trivially: nothing here calls an LLM.
+    finally:
+        conn.close()
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
