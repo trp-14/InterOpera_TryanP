@@ -53,8 +53,8 @@ def format_limit_string(result: FigureResult) -> str:
     if result.status == "ERROR":
         return "n/a"
     if result.limit_display_mode == "range":
-        # en-dash, matching firm_A_answer_key.xlsx exactly (e.g. "20–60%") -
-        # Step 9 reconciliation diffs this string verbatim.
+        # en-dash, matching the provided answer key workbook exactly (e.g.
+        # "20–60%") - Step 9 reconciliation diffs this string verbatim.
         suffix = " yrs" if result.unit == "years" else "%"
         return f"{result.limit_min}–{result.limit_max}{suffix}"
     if result.limit_display_mode == "min_only":
