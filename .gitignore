@@ -1,5 +1,6 @@
 artifacts/*
 !artifacts/.gitkeep
+.venv/
 .env
 audit.db
 __pycache__/
