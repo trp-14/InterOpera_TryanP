@@ -5,6 +5,7 @@ Subcommands are stubs until their BUILD_PLAN.md step is implemented.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import uuid
@@ -18,6 +19,7 @@ from src.config.loader import ConfigError, config_content_hash, load_config
 from src.graph import builder, schema
 from src.narrative.firewall import check_narrative
 from src.narrative.generator import generate_narrative
+from src.reconcile import compare, report
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GUIDELINES_PDF = PROJECT_ROOT / "sample_docs" / "sample_fund_guidelines.pdf"
@@ -183,15 +185,112 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
-    raise NotImplementedError("evaluate: implemented in BUILD_PLAN.md Step 9")
+    if not GRAPH_PATH.exists():
+        raise SystemExit(f"no frozen graph at {GRAPH_PATH.relative_to(PROJECT_ROOT)} - run `ingest` first")
+
+    config_path = PROJECT_ROOT / "config" / _CONFIG_FILENAME[args.firm]
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    graph = builder.load_frozen_graph(GRAPH_PATH)
+    results = compute_all_figures(graph, config)
+    reports = render_all(results, config)
+
+    answer_key = compare.read_answer_key(PROJECT_ROOT / "sample_docs" / "firm_A_answer_key.xlsx")
+    reference = answer_key if args.firm == "A" else compare.firm_b_reference(answer_key)
+
+    reconciliation_rows = compare.reconcile(reports, reference)
+    recon_ok = report.print_reconciliation(reconciliation_rows)
+    trace_ok = report.print_traceability(reports)
+
+    narrative = generate_narrative(reports) or ""
+    firewall_ok = report.print_firewall(narrative, reports)
+
+    run_id = f"run_{uuid.uuid4().hex[:8]}"
+    conn = audit_log.connect(AUDIT_DB_PATH)
+    try:
+        audit_log.append_event(
+            conn, run_id=run_id, event_type="reconciliation_run", actor="system",
+            payload={
+                "firm": args.firm,
+                "reconciled": sum(1 for r in reconciliation_rows if r.passed),
+                "total": len(reconciliation_rows),
+                "traceability_passed": trace_ok,
+                "firewall_passed": firewall_ok,
+            },
+        )
+    finally:
+        conn.close()
+
+    print("\n=== Summary ===")
+    print(f"Reconciliation: {'PASS' if recon_ok else 'FAIL'}")
+    print(f"Traceability:   {'PASS' if trace_ok else 'FAIL'}")
+    print(f"Firewall:       {'PASS' if firewall_ok else 'FAIL'}")
+
+    if not (recon_ok and trace_ok and firewall_ok):
+        raise SystemExit(1)
 
 
 def cmd_trace(args: argparse.Namespace) -> None:
-    raise NotImplementedError("trace: implemented in BUILD_PLAN.md Step 9")
+    if not GRAPH_PATH.exists():
+        raise SystemExit(f"no frozen graph at {GRAPH_PATH.relative_to(PROJECT_ROOT)} - run `ingest` first")
+
+    config_path = PROJECT_ROOT / "config" / _CONFIG_FILENAME[args.firm]
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    graph = builder.load_frozen_graph(GRAPH_PATH)
+    results = compute_all_figures(graph, config)
+
+    matches = [r for r in results if r.figure == args.figure_name]
+    if not matches:
+        valid_names = ", ".join(sorted(r.figure for r in results))
+        raise SystemExit(f"unknown figure {args.figure_name!r}. Valid names: {valid_names}")
+
+    result = matches[0]
+    print(f"figure:     {result.figure}")
+    if result.status == "ERROR":
+        print(f"status:     ERROR - {result.error}")
+        return
+
+    print(f"value:      {result.value} {result.unit}")
+    print(f"status:     {result.status}")
+    print(f"limit:      min={result.limit_min} max={result.limit_max}")
+    print(f"graph_path: {result.graph_path}")
+    if result.citation:
+        print(f"source:     {result.citation.source_doc} p.{result.citation.page} (chunk {result.citation.chunk_id})")
+        print(f"passage:    {result.citation.passage_summary}")
 
 
 def cmd_verify_determinism(args: argparse.Namespace) -> None:
-    raise NotImplementedError("verify-determinism: implemented in BUILD_PLAN.md Step 9")
+    if not GRAPH_PATH.exists():
+        raise SystemExit(f"no frozen graph at {GRAPH_PATH.relative_to(PROJECT_ROOT)} - run `ingest` first")
+
+    config_path = PROJECT_ROOT / "config" / _CONFIG_FILENAME[args.firm]
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    def _run_once() -> str:
+        graph = builder.load_frozen_graph(GRAPH_PATH)
+        reports = render_all(compute_all_figures(graph, config), config)
+        payload = json.dumps(reports, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    hash1 = _run_once()
+    hash2 = _run_once()
+
+    print(f"run 1 hash: {hash1}")
+    print(f"run 2 hash: {hash2}")
+    if hash1 == hash2:
+        print("PASS: figures are identical across runs")
+    else:
+        raise SystemExit("FAIL: figures differ across runs - determinism broken")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -219,6 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_trace = subparsers.add_parser("trace", help="print one figure's path to source")
     p_trace.add_argument("figure_name")
+    p_trace.add_argument("--firm", choices=["A", "B"], default="A", help="which firm's config to use (default: A)")
     p_trace.set_defaults(func=cmd_trace)
 
     p_verify = subparsers.add_parser("verify-determinism", help="run twice, compare hashes")
