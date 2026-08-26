@@ -70,6 +70,50 @@ func (a *App) ChooseProjectRoot() (ProjectStatus, error) {
 	return a.GetProjectStatus(), nil
 }
 
+// InputFile describes one fixed input the CLI reads, purely for display —
+// this app never lets the user swap these (see desktop/README.md: the
+// engine's paths are hardcoded in src/main.py and sample_docs/ is read-only
+// per CLAUDE.md, so a file picker here would have nothing to plug into).
+type InputFile struct {
+	Label string `json:"label"`
+	Path  string `json:"path"`
+	Found bool   `json:"found"`
+	Bytes int64  `json:"bytes"`
+}
+
+// GetInputFiles reports the exact, fixed files the CLI will read for the
+// given firm — the same paths hardcoded in src/main.py — so the UI can show
+// what's about to be processed instead of offering a file picker with
+// nothing to connect to.
+func (a *App) GetInputFiles(firm string) ([]InputFile, error) {
+	root, err := a.requireRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	configFile := "firm_a.yaml"
+	if firm == "B" {
+		configFile = "firm_b.yaml"
+	}
+
+	specs := []InputFile{
+		{Label: "Fund guidelines (PDF)", Path: filepath.Join("sample_docs", "sample_fund_guidelines.pdf")},
+		{Label: "Holdings (CSV, 13 positions)", Path: filepath.Join("sample_docs", "sample_holdings.csv")},
+		{Label: "Firm config (" + firm + ")", Path: filepath.Join("config", configFile)},
+		{Label: "Report template (XLSX)", Path: filepath.Join("sample_docs", "report_template.xlsx")},
+		{Label: "Answer key (XLSX, for evaluate)", Path: filepath.Join("sample_docs", "firm_A_answer_key.xlsx")},
+	}
+
+	for i := range specs {
+		info, err := os.Stat(filepath.Join(root, specs[i].Path))
+		specs[i].Found = err == nil
+		if err == nil {
+			specs[i].Bytes = info.Size()
+		}
+	}
+	return specs, nil
+}
+
 func (a *App) requireRoot() (string, error) {
 	if a.root == "" || !isProjectRoot(a.root) {
 		return "", errors.New("project root not set — use \"Select project folder\" first")

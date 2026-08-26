@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   GetProjectStatus,
   ChooseProjectRoot,
+  GetInputFiles,
   RunIngest,
   RunPipeline,
   RunEvaluate,
@@ -21,6 +22,7 @@ export default function Home() {
   const [log, setLog] = useState<string>("");
   const [viewerHtml, setViewerHtml] = useState<string>("");
   const [figureName, setFigureName] = useState("portfolio_modified_duration");
+  const [inputFiles, setInputFiles] = useState<main.InputFile[]>([]);
 
   const refreshStatus = () => {
     GetProjectStatus().then(setStatus);
@@ -29,6 +31,12 @@ export default function Home() {
   useEffect(() => {
     refreshStatus();
   }, []);
+
+  useEffect(() => {
+    if (status?.found) {
+      GetInputFiles(firm).then(setInputFiles).catch(() => setInputFiles([]));
+    }
+  }, [status?.found, firm]);
 
   const runAction = async (label: string, action: () => Promise<{ output?: string; runOutput?: string; viewerHtml?: string }>) => {
     setBusy(label);
@@ -73,6 +81,20 @@ export default function Home() {
         <h1 style={styles.h1}>Meridian Compliance Desktop</h1>
         <span style={styles.muted}>{status.root}</span>
       </header>
+
+      <section style={styles.inputFiles}>
+        <h2 style={styles.h2}>Input files (fixed for this run — no file picker by design)</h2>
+        <ul style={styles.inputFileList}>
+          {inputFiles.map((f) => (
+            <li key={f.path} style={styles.inputFileRow}>
+              <span style={f.found ? styles.badgeOk : styles.badgeMissing}>{f.found ? "✓" : "✗"}</span>
+              <span>{f.label}</span>
+              <code style={styles.inputFilePath}>{f.path}</code>
+              {f.found && <span style={styles.muted}>{(f.bytes / 1024).toFixed(1)} KB</span>}
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <section style={styles.controls}>
         <div style={styles.firmToggle}>
@@ -164,6 +186,12 @@ const styles: Record<string, React.CSSProperties> = {
   h1: { fontSize: "1.3rem", margin: 0 },
   h2: { fontSize: "1rem", margin: "0 0 0.5rem" },
   muted: { color: "#777", fontSize: "0.85rem" },
+  inputFiles: { border: "1px solid #e0e0e0", borderRadius: 8, padding: "0.7rem 0.9rem" },
+  inputFileList: { listStyle: "none", display: "flex", flexDirection: "column", gap: "0.3rem", fontSize: "0.85rem" },
+  inputFileRow: { display: "flex", alignItems: "center", gap: "0.6rem" },
+  inputFilePath: { color: "#555", background: "#f4f4f4", padding: "0.1rem 0.4rem", borderRadius: 4, fontSize: "0.78rem" },
+  badgeOk: { color: "#0a7a0a", fontWeight: 700 },
+  badgeMissing: { color: "#c0392b", fontWeight: 700 },
   controls: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.6rem" },
   firmToggle: { display: "flex", border: "1px solid #ccc", borderRadius: 6, overflow: "hidden" },
   firmButton: { padding: "0.4rem 0.9rem", border: "none", background: "white", cursor: "pointer" },

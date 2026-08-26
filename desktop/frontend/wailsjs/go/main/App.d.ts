@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function ChooseProjectRoot():Promise<main.ProjectStatus>;
 
+export function GetInputFiles(arg1:string):Promise<Array<main.InputFile>>;
+
 export function GetProjectStatus():Promise<main.ProjectStatus>;
 
 export function RunEvaluate(arg1:string):Promise<main.CommandResult>;

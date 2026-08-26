@@ -16,6 +16,24 @@ export namespace main {
 	        this.exitCode = source["exitCode"];
 	    }
 	}
+	export class InputFile {
+	    label: string;
+	    path: string;
+	    found: boolean;
+	    bytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new InputFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.path = source["path"];
+	        this.found = source["found"];
+	        this.bytes = source["bytes"];
+	    }
+	}
 	export class PipelineResult {
 	    runId: string;
 	    runOutput: string;

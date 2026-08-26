@@ -6,6 +6,10 @@ export function ChooseProjectRoot() {
   return window['go']['main']['App']['ChooseProjectRoot']();
 }
 
+export function GetInputFiles(arg1) {
+  return window['go']['main']['App']['GetInputFiles'](arg1);
+}
+
 export function GetProjectStatus() {
   return window['go']['main']['App']['GetProjectStatus']();
 }
