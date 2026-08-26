@@ -67,16 +67,24 @@ def write_report(template_path: str | Path, report_dicts: list[dict], output_pat
 
 
 if __name__ == "__main__":
+    # Demo/manual-check entry point only. Takes the config path as an
+    # argument rather than defaulting to one, so this file — like the rest
+    # of src/compute — never names a firm (CLAUDE.md section 3.1).
+    import sys
+
     from src.compute.figures import compute_all_figures
     from src.compute.formatters import render_all
     from src.config.loader import load_config
     from src.graph.builder import build_graph
 
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: python -m src.compute.excel_report <path-to-config.yaml>")
+
     root = Path(__file__).resolve().parents[2]
     graph = build_graph(root / "sample_docs" / "sample_fund_guidelines.pdf", root / "sample_docs" / "sample_holdings.csv")
-    config = load_config(root / "config" / "firm_a.yaml")
+    config = load_config(sys.argv[1])
     reports = render_all(compute_all_figures(graph, config), config)
 
-    output_path = root / "artifacts" / "demo" / "report_firm_A.xlsx"
+    output_path = root / "artifacts" / "demo" / "report.xlsx"
     write_report(root / "sample_docs" / "report_template.xlsx", reports, output_path)
     print(f"wrote {output_path.relative_to(root)}")
