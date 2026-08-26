@@ -90,6 +90,14 @@ def append_event(
     return row_hash
 
 
+def has_event(conn: sqlite3.Connection, run_id: str, event_type: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM audit_events WHERE run_id = ? AND event_type = ? LIMIT 1",
+        (run_id, event_type),
+    ).fetchone()
+    return row is not None
+
+
 def verify_chain(conn: sqlite3.Connection) -> bool:
     """Recompute every row's hash and confirm the prev_hash chain is unbroken."""
     rows = conn.execute(

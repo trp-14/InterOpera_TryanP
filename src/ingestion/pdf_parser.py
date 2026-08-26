@@ -39,8 +39,17 @@ class RetentionRow:
 
 
 @dataclass(frozen=True)
+class ExtractedBreachAction:
+    risk_metric_name: str  # matches an ExtractedLimit.name, e.g. "portfolio_duration"
+    text: str  # verbatim breach action, e.g. "PM notification within 1h"
+    page: int
+    chunk_id: str
+
+
+@dataclass(frozen=True)
 class ParsedGuidelines:
     limits: list[ExtractedLimit]
+    breach_actions: list[ExtractedBreachAction]
     retention_rows: list[RetentionRow]
 
 
@@ -88,6 +97,15 @@ _ALL_LIMIT_NAMES = (
     + [n for n, _, _ in _MIN_ONLY_PATTERNS]
 )
 
+# Only the two 3.1 rows that have a corresponding numeric Limit above need a
+# breach action for the graph (Step 3) — the other market-risk rows (VaR, ES,
+# etc.) aren't turned into graph nodes at all, so their breach text isn't
+# needed. Text extraction is clean here (unlike the retention table).
+_BREACH_ACTION_PATTERNS = [
+    ("portfolio_duration", r"Modified Duration\s+\d+\.\d+\s*\S\s*\d+\.\d+\s*years\s+Daily\s+([^\n]+)"),
+    ("portfolio_dv01", r"Portfolio DV01\s+\S\s*SGD\s+[\d,]+\s+per bp\s+Daily\s+([^\n]+)"),
+]
+
 _RETENTION_VALUE_PATTERN = re.compile(r"\b(\d+\s*years?|Permanent)\b")
 
 
@@ -98,9 +116,22 @@ def _to_decimal(raw: str) -> Decimal:
 def parse_guidelines(pdf_path: str | Path) -> ParsedGuidelines:
     chunks = chunk_pdf(pdf_path)
     found: dict[str, ExtractedLimit] = {}
+    breach_actions: dict[str, ExtractedBreachAction] = {}
 
     for chunk in chunks:
         text = chunk.text
+
+        for metric_name, pattern in _BREACH_ACTION_PATTERNS:
+            if metric_name in breach_actions:
+                continue
+            m = re.search(pattern, text)
+            if m:
+                breach_actions[metric_name] = ExtractedBreachAction(
+                    risk_metric_name=metric_name,
+                    text=m.group(1).strip(),
+                    page=chunk.page,
+                    chunk_id=chunk.chunk_id,
+                )
 
         for name, unit, pattern in _RANGE_PATTERNS:
             if name in found:
@@ -151,10 +182,15 @@ def parse_guidelines(pdf_path: str | Path) -> ParsedGuidelines:
     if missing:
         raise ValueError(f"failed to extract required limits from guidelines PDF: {missing}")
 
+    missing_breach = [n for n, _ in _BREACH_ACTION_PATTERNS if n not in breach_actions]
+    if missing_breach:
+        raise ValueError(f"failed to extract required breach actions from guidelines PDF: {missing_breach}")
+
     limits = [found[n] for n in _ALL_LIMIT_NAMES]
+    breach_action_list = [breach_actions[n] for n, _ in _BREACH_ACTION_PATTERNS]
     retention_rows = _parse_retention_table(pdf_path)
 
-    return ParsedGuidelines(limits=limits, retention_rows=retention_rows)
+    return ParsedGuidelines(limits=limits, breach_actions=breach_action_list, retention_rows=retention_rows)
 
 
 def _parse_retention_table(pdf_path: str | Path) -> list[RetentionRow]:
@@ -206,6 +242,10 @@ if __name__ == "__main__":
             f"min {limit.min_value}" if limit.min_value is not None else f"max {limit.max_value}"
         )
         print(f"{limit.name:32s} {bound:16s} {limit.unit:10s} page={limit.page} chunk={limit.chunk_id}")
+
+    print("\n=== extracted breach actions ===")
+    for breach in parsed.breach_actions:
+        print(f"{breach.risk_metric_name:20s} {breach.text!r} page={breach.page} chunk={breach.chunk_id}")
 
     print("\n=== retention rows (best-effort) ===")
     for row in parsed.retention_rows:
