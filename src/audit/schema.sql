@@ -1,0 +1,1 @@
+-- Step 1 (BUILD_PLAN.md) — audit_events table + triggers rejecting UPDATE/DELETE.
